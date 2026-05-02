@@ -1,0 +1,50 @@
+name: tsl_translate_ai
+description: "Thai Sign Language Interpretation System"
+publish_to: 'none'
+version: 1.0.0+2
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.6
+  google_fonts: ^6.1.0
+  permission_handler: ^11.3.0
+  tflite_flutter: ^0.11.0
+  google_mlkit_pose_detection: ^0.14.1
+  google_mlkit_commons: ^0.11.1
+  # tflite_flutter_helper: ^0.4.0
+
+  intl: ^0.19.0
+  path_provider: ^2.1.1
+
+  # 🔥 2 ตัวนี้ต้องเวอร์ชันนี้เท่านั้น ถึงจะทำงานด้วยกันได้
+  camera: ^0.11.3 
+  hand_landmarker: ^2.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  # 🔥 เพิ่มบรรทัดนี้ครับ (ต้องมีตัวนี้ถึงจะรันคำสั่งได้)
+  flutter_launcher_icons: ^0.13.1
+
+# 🔥 การตั้งค่าไอคอน (ต้องอยู่ชิดซ้ายสุด)
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon_hand.png" # ⚠️ ตรวจสอบว่าชื่อไฟล์รูปตรงกับที่มีจริงในโฟลเดอร์ assets
+  min_sdk_android: 21 
+  adaptive_icon_background: "#4DB6AC"
+  adaptive_icon_foreground: "assets/icon_hand.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/action.tflite
+    - assets/labels.txt
+    - assets/hand_landmarker.task
+    - assets/icon_hand.png # เพิ่มบรรทัดนี้เพื่อให้แอปเห็นรูปด้วย
