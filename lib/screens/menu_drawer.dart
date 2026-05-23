@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'history_screen.dart'; // ตรวจสอบว่ามีไฟล์นี้อยู่จริง
-import 'static_screens.dart'; // ไฟล์หน้าย่อยๆ (ดูโค้ดด้านล่าง)
+import 'history_screen.dart';
+import 'static_screens.dart';
 
 class MenuDrawer extends StatelessWidget {
   const MenuDrawer({super.key});
@@ -49,7 +49,7 @@ class MenuDrawer extends StatelessWidget {
                     context, 
                     "ประวัติการแปล", 
                     Icons.history, 
-                    const HistoryScreen() // ต้องมั่นใจว่า HistoryScreen มี const constructor หรือลบ const ออก
+                    const HistoryScreen()
                   ),
                   _buildMenuItem(
                     context, 

@@ -1,76 +1,117 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 
+/// แปลง CameraImage → InputImage สำหรับ ML Kit (Android ใช้ NV21 + stride จริง)
 class CameraHelper {
-  static InputImage? inputImageFromCameraImage(CameraImage image, CameraDescription camera) {
+  static InputImage? inputImageFromCameraImage(
+    CameraImage image,
+    CameraDescription camera, {
+    DeviceOrientation deviceOrientation = DeviceOrientation.portraitUp,
+  }) {
     try {
-      // 1. เช็ค Rotation
-      final sensorOrientation = camera.sensorOrientation;
-      InputImageRotation? rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
+      final rotation = _rotation(camera, deviceOrientation);
       if (rotation == null) return null;
 
-      // 2. บังคับ Format เป็น NV21 (ค่า rawValue คือ 17)
-      const format = InputImageFormat.nv21;
-
-      // 3. ☢️ แปลงข้อมูล YUV_420_888 (ที่มี Padding) ให้เป็น NV21 (Clean)
-      final int width = image.width;
-      final int height = image.height;
-      
-      // เตรียม Buffer ที่ขนาดเป๊ะๆ (Y + UV)
-      // Y = w * h
-      // UV = (w * h) / 2
-      final int targetSize = (width * height * 1.5).toInt();
-      final Uint8List targetBytes = Uint8List(targetSize);
-      
-      int targetIndex = 0;
-
-      // --- ขั้นตอนที่ 3.1: ก๊อปปี้ Y Plane (ความสว่าง) ---
-      final Plane yPlane = image.planes[0];
-      for (int y = 0; y < height; y++) {
-        final int srcOffset = y * yPlane.bytesPerRow;
-        for (int x = 0; x < width; x++) {
-          targetBytes[targetIndex++] = yPlane.bytes[srcOffset + x];
-        }
+      if (Platform.isAndroid) {
+        final bytes = _yuv420ToNv21(image);
+        return InputImage.fromBytes(
+          bytes: bytes,
+          metadata: InputImageMetadata(
+            size: Size(image.width.toDouble(), image.height.toDouble()),
+            rotation: rotation,
+            format: InputImageFormat.nv21,
+            bytesPerRow: image.width,
+          ),
+        );
       }
 
-      // --- ขั้นตอนที่ 3.2: ก๊อปปี้ UV Plane (สี) ---
-      // เราสมมติว่า Pixel Stride = 2 (สำหรับ iQOO/Vivo ส่วนใหญ่ที่เป็น NV21)
-      final Plane uPlane = image.planes[1];
-      final Plane vPlane = image.planes[2];
-      
-      // การคำนวณ: U/V จะมีความกว้างและความสูงเป็นครึ่งหนึ่งของ Y
-      for (int y = 0; y < height ~/ 2; y++) {
-        for (int x = 0; x < width ~/ 2; x++) {
-          
-          // ⚠️ จุดที่แก้ Error: 
-          // เปลี่ยนจาก vPlane.pixelStride เป็น 2 ตายตัวเลย
-          // สูตร: (แถว * ความกว้างแถว) + (คอลัมน์ * 2)
-          final int uvIndex = (y * vPlane.bytesPerRow) + (x * 2);
-          
-          // ป้องกัน index เกิน (เผื่อไว้กันเหนียว)
-          if (targetIndex < targetSize - 1 && uvIndex < vPlane.bytes.length && uvIndex < uPlane.bytes.length) {
-            // NV21 Format: ต้องใส่ V ก่อน แล้วตามด้วย U
-            targetBytes[targetIndex++] = vPlane.bytes[uvIndex]; 
-            targetBytes[targetIndex++] = uPlane.bytes[uvIndex];
-          }
-        }
+      if (Platform.isIOS && image.planes.length == 1) {
+        return InputImage.fromBytes(
+          bytes: image.planes[0].bytes,
+          metadata: InputImageMetadata(
+            size: Size(image.width.toDouble(), image.height.toDouble()),
+            rotation: rotation,
+            format: InputImageFormat.bgra8888,
+            bytesPerRow: image.planes[0].bytesPerRow,
+          ),
+        );
       }
 
-      // 4. ส่งข้อมูลที่ "จัดจาน" เรียบร้อยแล้ว
-      return InputImage.fromBytes(
-        bytes: targetBytes,
-        metadata: InputImageMetadata(
-          size: Size(width.toDouble(), height.toDouble()),
-          rotation: rotation,
-          format: format,
-          bytesPerRow: width, // บอก AI ว่าแถวนี้ไม่มีขอบแถมแล้วนะ
-        ),
-      );
-
-    } catch (e) {
-      // ถ้ามี Error อะไรก็ตาม ให้ข้ามเฟรมนี้ไปเลย (แอปจะได้ไม่เด้ง)
       return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Uint8List _yuv420ToNv21(CameraImage image) {
+    final width = image.width;
+    final height = image.height;
+    final yPlane = image.planes[0];
+    final uPlane = image.planes[1];
+    final vPlane = image.planes[2];
+
+    final nv21 = Uint8List(width * height + (width * height >> 1));
+    var index = 0;
+
+    for (var row = 0; row < height; row++) {
+      final rowOffset = row * yPlane.bytesPerRow;
+      for (var col = 0; col < width; col++) {
+        nv21[index++] = yPlane.bytes[rowOffset + col];
+      }
+    }
+
+    final uvRowStride = uPlane.bytesPerRow;
+    // camera 0.11 ใช้ bytesPerPixel แทน pixelStride (มักเป็น 2 บน Android)
+    final uvPixelStride = uPlane.bytesPerPixel ?? 2;
+    final uvWidth = width >> 1;
+    final uvHeight = height >> 1;
+
+    for (var row = 0; row < uvHeight; row++) {
+      for (var col = 0; col < uvWidth; col++) {
+        final uvIndex = row * uvRowStride + col * uvPixelStride;
+        if (uvIndex < vPlane.bytes.length && uvIndex < uPlane.bytes.length) {
+          nv21[index++] = vPlane.bytes[uvIndex];
+          nv21[index++] = uPlane.bytes[uvIndex];
+        }
+      }
+    }
+
+    return nv21;
+  }
+
+  static InputImageRotation? _rotation(
+    CameraDescription camera,
+    DeviceOrientation deviceOrientation,
+  ) {
+    if (Platform.isIOS) {
+      return InputImageRotationValue.fromRawValue(camera.sensorOrientation);
+    }
+
+    var rotationCompensation = _orientationDegrees(deviceOrientation);
+    if (camera.lensDirection == CameraLensDirection.front) {
+      rotationCompensation =
+          (camera.sensorOrientation + rotationCompensation) % 360;
+    } else {
+      rotationCompensation =
+          (camera.sensorOrientation - rotationCompensation + 360) % 360;
+    }
+    return InputImageRotationValue.fromRawValue(rotationCompensation);
+  }
+
+  static int _orientationDegrees(DeviceOrientation orientation) {
+    switch (orientation) {
+      case DeviceOrientation.portraitUp:
+        return 0;
+      case DeviceOrientation.landscapeLeft:
+        return 90;
+      case DeviceOrientation.portraitDown:
+        return 180;
+      case DeviceOrientation.landscapeRight:
+        return 270;
     }
   }
 }
